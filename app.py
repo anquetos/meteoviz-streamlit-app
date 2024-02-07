@@ -16,7 +16,7 @@ from meteo_france import Client
 @st.cache_data
 def import_api_daily_parameters() -> pd.DataFrame:
     """Import climatological api parameters in a DataFrame"""
-    df = pd.read_csv('./datasets/api-clim-table-parametres-quotidiens.csv',
+    df = pd.read_csv('datasets/api-clim-table-parametres-quotidiens.csv',
                      sep=';')
 
     return df

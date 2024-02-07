@@ -87,27 +87,6 @@ def _reverse_search_city(lat_lon: list) -> requests.Response:
             x -= 1
     
     return r.json().get('features')
-    
-    
-
-
-
-    #     result = r.json()['features']
-
-    #     if result:
-    #         result = result[0]
-    #         break
-
-    #     x -= 1
-
-    # if not result:
-    #     return {'city': '-', 'context': '-'}
-    
-    # return  {
-    #         'city': result['properties']['city'],
-    #         'context': result['properties']['context']
-    #     }
-    # return r
 
 
 def _get_nearest_station_information(lat_lon: list) -> dict:

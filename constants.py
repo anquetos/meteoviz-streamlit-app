@@ -12,4 +12,4 @@ ORDER_RECOVERY_URL = 'https://public-api.meteofrance.fr/public/DPClim/v1/command
 ADRESS_SEARCH_URL = 'https://api-adresse.data.gouv.fr/search/'
 REVERSE_ADRESS_URL = 'https://api-adresse.data.gouv.fr/reverse/'
 
-WEATHER_STATION_LIST_PATH = './datasets/weather-stations-list.csv'
+WEATHER_STATION_LIST_PATH = 'datasets/weather-stations-list.csv'
