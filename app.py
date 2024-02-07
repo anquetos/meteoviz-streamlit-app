@@ -123,8 +123,8 @@ def get_other_date_observation(id_station: str, date: date, time: time) -> dict:
             df['OBS'] = ['previous_obs', 'current_obs']
             df = df.set_index('OBS')
 
-            # Transform to dict
-            df = df.to_dict('index')
+            # # Transform to dict
+            # df = df.to_dict('index')
         
             return df
 
@@ -496,107 +496,109 @@ if st.session_state.selected_city:
                 st.session_state.other_time_selected
             )
 
-            # Layout observation in metric widgets
-            with st.container(border=True):
-                col11, col12, col13, col14 = st.columns(4)
-                with col11:
-                    c = dict_other_date.get('current_obs').get('T')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('T'),
-                        dict_other_date.get('previous_obs').get('T'),
-                        0
-                    )
-                    st.metric(
-                        label='Température',
-                        value=(f'{(c):.1f} °C') if c is not None else None,
-                        delta=(f'{d:.1f} °C') if d is not None else None
-                    )
-                with col12:
-                    c = dict_other_date.get('current_obs').get('U')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('U'), 
-                        dict_other_date.get('previous_obs').get('U'),
-                        0
-                    )
-                    st.metric(
-                        label='Humidité',
-                        value=(f'{c} %') if c is not None else None,
-                        delta=(f'{d} %') if d is not None else None
-                    )
-                with col13:
-                    c = dict_other_date.get('current_obs').get('FF')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('FF'),
-                        dict_other_date.get('previous_obs').get('FF'),
-                        0
-                    )
-                    st.metric(
-                        label='Vent',
-                        value=(f'{(c*3.6):.0f} km/h') if c is not None else None,
-                        delta=(f'{(d*3.6):.0f} km/h') if d is not None else None
-                    )
-                with col14:
-                    c = dict_other_date.get('current_obs').get('RR1')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('RR1'),
-                        dict_other_date.get('previous_obs').get('RR1'),
-                        0
-                    )
-                    st.metric(
-                        label='Précipitations 1h',
-                        value=(f'{c:.1f} mm') if c is not None else None,
-                        delta=(f'{d:.1f} mm') if d is not None else None
-                    )
+            st.dataframe(dict_other_date)
 
-                col15, col16, col17, col18 = st.columns(4)
-                with col15:
-                    c = dict_other_date.get('current_obs').get('VV')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('VV'),
-                        dict_other_date.get('previous_obs').get('VV'),
-                        0
-                    )
-                    st.metric(
-                        label='Visibilité',
-                        value=(f'{(c/1000):.1f} km') if c is not None else None,
-                        delta=(f'{(d/1000):.1f} km') if d is not None else None
-                    )
-                with col16:
-                    c = dict_other_date.get('current_obs').get('NEIGETOT')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('NEIGETOT'),
-                        dict_other_date.get('previous_obs').get('NEIGETOT'),
-                        0
-                    )
-                    st.metric(
-                        label='Neige',
-                        value=(f'{(c*100):.0f} cm') if c is not None else None,
-                        delta=(f'{(d*100):.0f} cm') if d is not None else None
-                    )
-                with col17:
-                    c = dict_other_date.get('current_obs').get('INS')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('INS'),
-                        dict_other_date.get('previous_obs').get('INS'),
-                        0
-                    )
-                    st.metric(
-                        label='Ensoleillement',
-                        value=(f'{c} min') if c is not None else None,
-                        delta=(f'{d} min') if d is not None else None
-                    )
-                with col18:
-                    c = dict_other_date.get('current_obs').get('PSTAT')
-                    d = utils.calculate_delta(
-                        dict_other_date.get('current_obs').get('PSTAT'),
-                        dict_other_date.get('previous_obs').get('PSTAT'),
-                        0.1
-                    )
-                    st.metric(
-                        label='Pression',
-                        value=(f'{(c):.0f} hPa') if c is not None else None,
-                        delta=(f'{(d):.0f} hPa') if d is not None else None
-                    )
+            # Layout observation in metric widgets
+            # with st.container(border=True):
+            #     col11, col12, col13, col14 = st.columns(4)
+            #     with col11:
+            #         c = dict_other_date.get('current_obs').get('T')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('T'),
+            #             dict_other_date.get('previous_obs').get('T'),
+            #             0
+            #         )
+            #         st.metric(
+            #             label='Température',
+            #             value=(f'{(c):.1f} °C') if c is not None else None,
+            #             delta=(f'{d:.1f} °C') if d is not None else None
+            #         )
+            #     with col12:
+            #         c = dict_other_date.get('current_obs').get('U')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('U'), 
+            #             dict_other_date.get('previous_obs').get('U'),
+            #             0
+            #         )
+            #         st.metric(
+            #             label='Humidité',
+            #             value=(f'{c} %') if c is not None else None,
+            #             delta=(f'{d} %') if d is not None else None
+            #         )
+            #     with col13:
+            #         c = dict_other_date.get('current_obs').get('FF')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('FF'),
+            #             dict_other_date.get('previous_obs').get('FF'),
+            #             0
+            #         )
+            #         st.metric(
+            #             label='Vent',
+            #             value=(f'{(c*3.6):.0f} km/h') if c is not None else None,
+            #             delta=(f'{(d*3.6):.0f} km/h') if d is not None else None
+            #         )
+            #     with col14:
+            #         c = dict_other_date.get('current_obs').get('RR1')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('RR1'),
+            #             dict_other_date.get('previous_obs').get('RR1'),
+            #             0
+            #         )
+            #         st.metric(
+            #             label='Précipitations 1h',
+            #             value=(f'{c:.1f} mm') if c is not None else None,
+            #             delta=(f'{d:.1f} mm') if d is not None else None
+            #         )
+
+            #     col15, col16, col17, col18 = st.columns(4)
+            #     with col15:
+            #         c = dict_other_date.get('current_obs').get('VV')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('VV'),
+            #             dict_other_date.get('previous_obs').get('VV'),
+            #             0
+            #         )
+            #         st.metric(
+            #             label='Visibilité',
+            #             value=(f'{(c/1000):.1f} km') if c is not None else None,
+            #             delta=(f'{(d/1000):.1f} km') if d is not None else None
+            #         )
+            #     with col16:
+            #         c = dict_other_date.get('current_obs').get('NEIGETOT')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('NEIGETOT'),
+            #             dict_other_date.get('previous_obs').get('NEIGETOT'),
+            #             0
+            #         )
+            #         st.metric(
+            #             label='Neige',
+            #             value=(f'{(c*100):.0f} cm') if c is not None else None,
+            #             delta=(f'{(d*100):.0f} cm') if d is not None else None
+            #         )
+            #     with col17:
+            #         c = dict_other_date.get('current_obs').get('INS')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('INS'),
+            #             dict_other_date.get('previous_obs').get('INS'),
+            #             0
+            #         )
+            #         st.metric(
+            #             label='Ensoleillement',
+            #             value=(f'{c} min') if c is not None else None,
+            #             delta=(f'{d} min') if d is not None else None
+            #         )
+            #     with col18:
+            #         c = dict_other_date.get('current_obs').get('PSTAT')
+            #         d = utils.calculate_delta(
+            #             dict_other_date.get('current_obs').get('PSTAT'),
+            #             dict_other_date.get('previous_obs').get('PSTAT'),
+            #             0.1
+            #         )
+            #         st.metric(
+            #             label='Pression',
+            #             value=(f'{(c):.0f} hPa') if c is not None else None,
+            #             delta=(f'{(d):.0f} hPa') if d is not None else None
+            #         )
 
         else:
             st.warning(f'⏲️ L\'heure sélectionnée est trop récente : elle ne peut '
