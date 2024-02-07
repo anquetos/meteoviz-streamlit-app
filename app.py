@@ -205,7 +205,7 @@ def filter_climatological_data(raw_data: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Filtered DataFrame.
     """
-    if not raw_data.empty:
+    if len(raw_data.index) != 0:
         cols_to_keep = (
             ['POSTE', 'DATE']
             + list(set(api_parameters_in_selected_category(
