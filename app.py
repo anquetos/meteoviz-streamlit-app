@@ -104,26 +104,29 @@ def get_other_date_observation(id_station: str, date: date, time: time) -> dict:
             .get('return')
         )
 
-    # Get data from order id
-    other_date_climatological_response = Client().order_recovery(
-            other_date_order_id)
-    if other_date_climatological_response.status_code == 201:
-        other_date_climatological_data = other_date_climatological_response.text
-        # Import data in a DataFrame
-        df = pd.read_csv(
-            StringIO(other_date_climatological_data), sep=';')
-        # Convert 'object' data to 'float'
-        string_col = df.select_dtypes(include=['object']).columns
-        for col in string_col:
-            df[col] = df[col].str.replace(',', '.')
-            df[col] = df[col].astype('float')
-        # Replace Pandas 'NaN' with 'None'
-        df = df.replace(np.nan, None)
-        # Set index with 'previous' and 'current' label
-        df['OBS'] = ['previous_obs', 'current_obs']
-        df = df.set_index('OBS')
+        # Get data from order id
+        other_date_climatological_response = Client().order_recovery(
+                other_date_order_id)
+        if other_date_climatological_response.status_code == 201:
+            other_date_climatological_data = other_date_climatological_response.text
+            # Import data in a DataFrame
+            df = pd.read_csv(
+                StringIO(other_date_climatological_data), sep=';')
+            # Convert 'object' data to 'float'
+            string_col = df.select_dtypes(include=['object']).columns
+            for col in string_col:
+                df[col] = df[col].str.replace(',', '.')
+                df[col] = df[col].astype('float')
+            # Replace Pandas 'NaN' with 'None'
+            df = df.replace(np.nan, None)
+            # Set index with 'previous' and 'current' label
+            df['OBS'] = ['previous_obs', 'current_obs']
+            df = df.set_index('OBS')
+
+            # Transform to dict
+            df = df.to_dict('index')
         
-        return df.to_dict('index')
+            return df
 
        
 @st.cache_data
