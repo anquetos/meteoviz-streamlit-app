@@ -274,7 +274,7 @@ with st.sidebar:
         label='Faites votre choix',
         options=city_search_options,
         index=None,
-        format_func=lambda x: f'{x['label']} ({x['context'].split(',')[0]})',
+        format_func=lambda x: f'''{x['label']} ({x['context'].split(',')[0]})''',
         key='selected_city',
         placeholder='Sélectionnez un résultat...'
     )
