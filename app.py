@@ -123,7 +123,7 @@ def get_other_date_observation(id_station: str, date: date, time: time) -> dict:
         df['OBS'] = ['previous_obs', 'current_obs']
         df = df.set_index('OBS')
         
-    return df.to_dict('index')
+        return df.to_dict('index')
 
        
 @st.cache_data
