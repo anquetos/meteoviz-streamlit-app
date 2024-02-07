@@ -139,7 +139,7 @@ def get_year_climatological_data(id_station: str, year: int) -> pd.DataFrame:
         pd.DataFrame: climatological data.
     """
     if year == st.session_state.nearest_station_info.get('date_ouverture').year:
-        start_date = f'{st.session_state.nearest_station_info.get('date_ouverture')}T00:00:00Z'
+        start_date = f'''{st.session_state.nearest_station_info.get('date_ouverture')}T00:00:00Z'''
     else:
         start_date = f'{year}-01-01T00:00:00Z'
     # Define the end datetime (if selected year is the current year we probably
@@ -294,9 +294,9 @@ with st.sidebar:
 
         # Display nearest station information in expander
         with st.expander(
-            f'{st.session_state.nearest_station_info.get('nom_usuel')} '
-            f'({st.session_state.nearest_station_info.get('city')}, '
-            f'{st.session_state.nearest_station_info.get('context')})'
+            f'''{st.session_state.nearest_station_info.get('nom_usuel')} '''
+            f'''({st.session_state.nearest_station_info.get('city')}, '''
+            f'''{st.session_state.nearest_station_info.get('context')})'''
         ):
 
             nearest_station_text = f'''
@@ -428,7 +428,7 @@ if st.session_state.selected_city:
                 '%Y-%m-%dT%H:%M:%SZ'
             ).replace(tzinfo=ZoneInfo('UTC'))
             st.caption(
-                f'📅 {observation_datetime_utc.astimezone(tz=ZoneInfo('Europe/Paris'))}')
+                f'''📅 {observation_datetime_utc.astimezone(tz=ZoneInfo('Europe/Paris'))}''')
 
     # -- Display observation at another date section
 

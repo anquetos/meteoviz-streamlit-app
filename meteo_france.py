@@ -202,12 +202,7 @@ class Client(object):
 
 
 def main():
-    client = Client()
-    # r = client.order_hourly_climatological_data('76540009', '2024-02-04T04:00:00Z', '2024-02-04T04:00:00Z')
-    # print(r.json().get('elaboreProduitAvecDemandeResponse').get('return'))
-
-    r = client.order_recovery('761044914939')
-    print(r.text)
+    pass
 
 
 if __name__ == '__main__':

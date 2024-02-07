@@ -193,9 +193,7 @@ def calculate_delta(x: float, y: float, rel_tol: float) -> float:
  
 
 def main():
-    test = calculate_delta(282.15, 282.65, 0)
-
-    print(test)
+    pass
 
 if __name__ == '__main__':
     main()
