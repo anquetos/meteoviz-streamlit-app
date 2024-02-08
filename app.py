@@ -25,7 +25,7 @@ def import_api_daily_parameters() -> pd.DataFrame:
     return df
 
 
-@st.cache_data
+@st.cache_data(max_entries=5)
 def get_station_info(coordinates: list[float]) -> dict:
     """Call function with cache decorator to retrieve nearest observation
     station information.
@@ -92,7 +92,7 @@ def get_observation(id_station: str) -> tuple[dict]:
     return current_observation, previous_observation
 
     
-@st.cache_data
+@st.cache_data(max_entries=3)
 def get_other_date_observation(id_station: str, requested_date: date, requested_time: time) -> dict:
     """"Call function with cache decorator to get hourly observation and
     the one an hour before at another date and time than the current one.
@@ -171,7 +171,7 @@ def get_other_date_observation(id_station: str, requested_date: date, requested_
     return df.to_dict('index') 
 
        
-@st.cache_data
+@st.cache_data(max_entries=3)
 def get_year_climatological_data(id_station: str, year: int) -> pd.DataFrame:
     """Call function with cache decorator to get climatological data for a full
     year.
