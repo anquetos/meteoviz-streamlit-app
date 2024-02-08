@@ -16,6 +16,7 @@ from streamlit import secrets
 
 import constants
 
+# Import ID from Streamlit secrets
 APPLICATION_ID = secrets.APPLICATION_ID
 
 class Client(object):

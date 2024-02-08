@@ -1,6 +1,8 @@
 from io import StringIO
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
+import json
+from time import sleep
 
 import streamlit as st
 import requests
@@ -8,6 +10,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
+import constants
 import utils
 from meteo_france import Client
 
@@ -52,33 +55,52 @@ def get_observation(id_station: str) -> tuple[dict]:
     # Get current available observation
     current_response = Client().get_hourly_observation(
         id_station, '')
+    
     if current_response.status_code == requests.codes.ok:
-        current_obs = current_response.json()[0]
+        try:
+            # Convert response to dictionnary
+            current_observation = current_response.json()[0]
+            # Calculate the previous validity time
+            previous_validity_time = (
+                datetime.strptime(current_observation.get('validity_time'), constants.DATETIME_FORMAT)
+                - timedelta(hours=1)
+            ).strftime(constants.DATETIME_FORMAT)
+        except json.JSONDecodeError:
+            raise Exception('Erreur de décodage de la réponse JSON.')
+    else:
+        raise Exception(
+            f'''Echec de la récupération des données.  
+            {current_response.status_code} : {current_response.reason}
+            ''')
 
-    # Calculate the previous validity time
-    previous_validity_time = (
-        datetime.strptime(current_obs.get('validity_time'), '%Y-%m-%dT%H:%M:%SZ')
-        - timedelta(hours=1)
-    ).strftime('%Y-%m-%dT%H:%M:%SZ')
     # Get the previous observation before the last one available
     previous_response = Client().get_hourly_observation(
         id_station, previous_validity_time)
     
     if previous_response.status_code == requests.codes.ok:
-        previous_obs = previous_response.json()[0]
+        try:
+            # Convert response to dictionnary
+            previous_observation = previous_response.json()[0]
+        except json.JSONDecodeError:
+            raise Exception('Erreur de décodage de la réponse JSON.')
+    else:
+        raise Exception(
+            f'''Echec de la récupération des données.  
+            {current_response.status_code} : {current_response.reason}
+            ''')
 
-    return current_obs, previous_obs
+    return current_observation, previous_observation
 
     
 @st.cache_data
-def get_other_date_observation(id_station: str, date: date, time: time) -> dict:
+def get_other_date_observation(id_station: str, requested_date: date, requested_time: time) -> dict:
     """"Call function with cache decorator to get hourly observation and
     the one an hour before at another date and time than the current one.
 
     Args:
         id_station (str): id of nearest observation station ;
-        date (date): date of requested data ;
-        time (time): time of requested data.
+        requested_date (date): date of requested data ;
+        requested_time (time): time of requested data.
 
     Returns:
         dict: observations.
@@ -86,28 +108,44 @@ def get_other_date_observation(id_station: str, date: date, time: time) -> dict:
 
     # Set datetimes for the api requests
     other_datetime_end = datetime.combine(
-        date, time, tzinfo=ZoneInfo('Europe/Paris'))
+        requested_date, requested_time, tzinfo=ZoneInfo('Europe/Paris'))
     other_datetime_end_utc = other_datetime_end.astimezone(tz=ZoneInfo('UTC'))
     other_datetime_start_utc = other_datetime_end_utc - timedelta(hours=1)
 
     # Get order id from the api
     other_date_order_response = Client().order_hourly_climatological_data(
         id_station,
-        other_datetime_start_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
-        other_datetime_end_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+        other_datetime_start_utc.strftime(constants.DATETIME_FORMAT),
+        other_datetime_end_utc.strftime(constants.DATETIME_FORMAT)
     )
     if other_date_order_response.status_code == 202:
-        other_date_order_id = (
-            other_date_order_response
-            .json() 
-            .get('elaboreProduitAvecDemandeResponse')
-            .get('return')
-        )
+        try:
+            other_date_order_id = (
+                other_date_order_response
+                .json() 
+                .get('elaboreProduitAvecDemandeResponse')
+                .get('return')
+            )
+        except json.JSONDecodeError:
+            raise Exception('Erreur de décodage de la réponse JSON.')
+    else:
+        raise Exception(
+            f'''Echec de la récupération des données.  
+            {other_date_order_response.status_code} : {other_date_order_response.reason}
+            ''')
 
-        # Get data from order id
+    # Get data from order id and retry if data not yet ready (code 204)
+    response_code = 204
+    n_tries = 0
+    while response_code == 204 and n_tries < 5:
         other_date_climatological_response = Client().order_recovery(
-                other_date_order_id)
-        if other_date_climatological_response.status_code == 201:
+            other_date_order_id)
+        response_code = other_date_climatological_response.status_code
+        n_tries =+ 1
+        sleep(5)
+    
+    if other_date_climatological_response.status_code == 201:
+        try:
             other_date_climatological_data = other_date_climatological_response.text
             # Import data in a DataFrame
             df = pd.read_csv(
@@ -120,13 +158,17 @@ def get_other_date_observation(id_station: str, date: date, time: time) -> dict:
             # Replace Pandas 'NaN' with 'None'
             df = df.replace(np.nan, None)
             # Set index with 'previous' and 'current' label
-            df['OBS'] = ['previous_obs', 'current_obs']
+            df['OBS'] = ['previous_observation', 'current_observation']
             df = df.set_index('OBS')
-
-            # # Transform to dict
-            # df = df.to_dict('index')
+        except Exception as e:
+            f'Echec lors de la lecture de la réponse : {e}.'
+    else:
+        raise Exception(
+            f'''Echec de la récupération des données.  
+            {other_date_climatological_response.status_code} : {other_date_climatological_response.reason}
+            ''')
         
-            return df
+    return df.to_dict('index') 
 
        
 @st.cache_data
@@ -152,21 +194,37 @@ def get_year_climatological_data(id_station: str, year: int) -> pd.DataFrame:
     else:
         end_date = f'{year}-12-31T00:00:00Z'
 
-        # Get data from the api
+    # Get data from the api
     visualization_order_response = Client().order_daily_climatological_data(
         id_station, start_date, end_date)
 
     if visualization_order_response.status_code == 202:
-        visualization_order_id = (
-            visualization_order_response
-            .json() 
-            .get('elaboreProduitAvecDemandeResponse')
-            .get('return')
-        )
+        try:
+            visualization_order_id = (
+                visualization_order_response
+                .json() 
+                .get('elaboreProduitAvecDemandeResponse')
+                .get('return')
+            )
+        except json.JSONDecodeError:
+            raise Exception('Erreur de décodage de la réponse JSON.')
+    else:
+        raise Exception(
+            f'''Echec de la récupération des données.  
+            {visualization_order_response.status_code} : {visualization_order_response.reason}
+            ''')
 
+    # Get data from order id and retry if data not yet ready (code 204)
+    response_code = 204
+    n_tries = 0
+    while response_code == 204 and n_tries < 5:
         visualization_climatological_response = Client().order_recovery(
                 visualization_order_id)
-        if visualization_climatological_response.status_code == 201:
+        n_tries =+ n_tries
+        sleep(5)
+    
+    if visualization_climatological_response.status_code == 201:
+        try:
             visualization_climatological_data = visualization_climatological_response.text
 
             # Import data in DataFrame
@@ -179,8 +237,15 @@ def get_year_climatological_data(id_station: str, year: int) -> pd.DataFrame:
                 df[col] = df[col].astype('float')
             # Remove all variables with only NaN
             df =  df.dropna(axis='columns')
+        except Exception as e:
+            f'Echec lors de la lecture de la réponse : {e}.'
+    else:
+        raise Exception(
+            f'''Echec de la récupération des données.  
+            {visualization_climatological_data.status_code} : {visualization_climatological_data.reason}
+            ''')
 
-            return df
+    return df
 
 
 def api_parameters_in_selected_category(category: str) -> list:
@@ -269,9 +334,6 @@ with st.sidebar:
             )
     else:
         city_search_options = []
-
-    
-        st.cache_data.clear()
         
     st.selectbox(
         label='Faites votre choix',
@@ -343,44 +405,51 @@ if st.session_state.selected_city:
 
     st.subheader('Observations en temps réel')
 
-    # Get observation data
-    current_obs, previous_obs = get_observation(
-        st.session_state.nearest_station_info.get('id_station'))
-    
+    try:
+        # Get observation data
+        current_observation, previous_observation = get_observation(
+            st.session_state.nearest_station_info.get('id_station'))
+    except Exception as e:
+        st.error(f'''☔ Une erreur est apparue !  
+                {str(e)}
+        ''')
+        st.stop()
+
+
     # Layout observation in metric widgets
     with st.container(border=True):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            c = current_obs.get('t')
+            c = current_observation.get('t')
             d = utils.calculate_delta(
-                current_obs.get('t'), previous_obs.get('t'), 0)
+                current_observation.get('t'), previous_observation.get('t'), 0)
             st.metric(
                 label='Température',
                 value=(f'{(c-273):.1f} °C') if c is not None else None,
                 delta=(f'{d:.1f} °C') if d is not None else None
             )
         with col2:
-            c = current_obs.get('u')
+            c = current_observation.get('u')
             d = utils.calculate_delta(
-                current_obs.get('u'), previous_obs.get('u'), 0)
+                current_observation.get('u'), previous_observation.get('u'), 0)
             st.metric(
                 label='Humidité',
                 value=(f'{c} %') if c is not None else None,
                 delta=(f'{d} %') if d is not None else None
             )
         with col3:
-            c = current_obs.get('ff')
+            c = current_observation.get('ff')
             d = utils.calculate_delta(
-                current_obs.get('ff'), previous_obs.get('ff'), 0)
+                current_observation.get('ff'), previous_observation.get('ff'), 0)
             st.metric(
                 label='Vent',
                 value=(f'{(c*3.6):.0f} km/h') if c is not None else None,
                 delta=(f'{(d*3.6):.0f} km/h') if d is not None else None
             )
         with col4:
-            c = current_obs.get('rr1')
+            c = current_observation.get('rr1')
             d = utils.calculate_delta(
-                current_obs.get('rr1'), previous_obs.get('rr1'), 0)
+                current_observation.get('rr1'), previous_observation.get('rr1'), 0)
             st.metric(
                 label='Précipitations 1h',
                 value=(f'{c:.1f} mm') if c is not None else None,
@@ -389,46 +458,46 @@ if st.session_state.selected_city:
 
         col5, col6, col7, col8 = st.columns(4)
         with col5:
-            c = current_obs.get('vv')
+            c = current_observation.get('vv')
             d = utils.calculate_delta(
-                current_obs.get('vv'), previous_obs.get('vv'), 0)
+                current_observation.get('vv'), previous_observation.get('vv'), 0)
             st.metric(
                 label='Visibilité',
                 value=(f'{(c/1000):.1f} km') if c is not None else None,
                 delta=(f'{(d/1000):.1f} km') if d is not None else None
             )
         with col6:
-            c = current_obs.get('sss')
+            c = current_observation.get('sss')
             d = utils.calculate_delta(
-                current_obs.get('sss'), previous_obs.get('sss'), 0)
+                current_observation.get('sss'), previous_observation.get('sss'), 0)
             st.metric(
                 label='Neige',
                 value=(f'{(c*100):.0f} cm') if c is not None else None,
                 delta=(f'{(d*100):.0f} cm') if d is not None else None
             )
         with col7:
-            c = current_obs.get('insolh')
+            c = current_observation.get('insolh')
             d = utils.calculate_delta(
-                current_obs.get('insolh'), previous_obs.get('insolh'), 0)
+                current_observation.get('insolh'), previous_observation.get('insolh'), 0)
             st.metric(
                 label='Ensoleillement',
                 value=(f'{c} min') if c is not None else None,
                 delta=(f'{d} min') if d is not None else None
             )
         with col8:
-            c = current_obs.get('pres')
+            c = current_observation.get('pres')
             d = utils.calculate_delta(
-                current_obs.get('pres'), previous_obs.get('pres'), 0.1)
+                current_observation.get('pres'), previous_observation.get('pres'), 0.1)
             st.metric(
                 label='Pression',
                 value=(f'{(c/100):.0f} hPa') if c is not None else None,
                 delta=(f'{(d/100):.0f} hPa') if d is not None else None
             )
         
-        if 'validity_time' in current_obs:
+        if 'validity_time' in current_observation:
             observation_datetime_utc = datetime.strptime(
-                current_obs.get('validity_time'),
-                '%Y-%m-%dT%H:%M:%SZ'
+                current_observation.get('validity_time'),
+                constants.DATETIME_FORMAT
             ).replace(tzinfo=ZoneInfo('UTC'))
             st.caption(
                 f'''📅 {observation_datetime_utc.astimezone(tz=ZoneInfo('Europe/Paris'))}''')
@@ -468,7 +537,8 @@ if st.session_state.selected_city:
                 label='Précisez une date...',
                 value=date_value,
                 max_value=max_date_value,
-                key='other_date_selected'
+                key='other_date_selected',
+                format='DD/MM/YYYY'
             )
         with col10:
             st.time_input(
@@ -490,115 +560,120 @@ if st.session_state.selected_city:
 
         # Get observation data
         if not check_datetime_limit():
-            dict_other_date = get_other_date_observation(
-                st.session_state.nearest_station_info.get('id_station'),
-                st.session_state.other_date_selected,
-                st.session_state.other_time_selected
-            )
+            try:
+                dict_other_date = get_other_date_observation(
+                    st.session_state.nearest_station_info.get('id_station'),
+                    st.session_state.other_date_selected,
+                    st.session_state.other_time_selected
+                )
+            except Exception as e:
+                st.error(f'''☔ Une erreur est apparue !  
+                        {str(e)}
+                ''')
+                st.stop()
 
-            st.dataframe(dict_other_date)
+            if dict_other_date:
+                # Layout observation in metric widgets
+                with st.container(border=True):
+                    col11, col12, col13, col14 = st.columns(4)
+                    with col11:
+                        c = dict_other_date.get('current_observation').get('T')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('T'),
+                            dict_other_date.get('previous_observation').get('T'),
+                            0
+                        )
+                        st.metric(
+                            label='Température',
+                            value=(f'{(c):.1f} °C') if c is not None else None,
+                            delta=(f'{d:.1f} °C') if d is not None else None
+                        )
+                    with col12:
+                        c = dict_other_date.get('current_observation').get('U')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('U'), 
+                            dict_other_date.get('previous_observation').get('U'),
+                            0
+                        )
+                        st.metric(
+                            label='Humidité',
+                            value=(f'{c} %') if c is not None else None,
+                            delta=(f'{d} %') if d is not None else None
+                        )
+                    with col13:
+                        c = dict_other_date.get('current_observation').get('FF')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('FF'),
+                            dict_other_date.get('previous_observation').get('FF'),
+                            0
+                        )
+                        st.metric(
+                            label='Vent',
+                            value=(f'{(c*3.6):.0f} km/h') if c is not None else None,
+                            delta=(f'{(d*3.6):.0f} km/h') if d is not None else None
+                        )
+                    with col14:
+                        c = dict_other_date.get('current_observation').get('RR1')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('RR1'),
+                            dict_other_date.get('previous_observation').get('RR1'),
+                            0
+                        )
+                        st.metric(
+                            label='Précipitations 1h',
+                            value=(f'{c:.1f} mm') if c is not None else None,
+                            delta=(f'{d:.1f} mm') if d is not None else None
+                        )
 
-            # Layout observation in metric widgets
-            # with st.container(border=True):
-            #     col11, col12, col13, col14 = st.columns(4)
-            #     with col11:
-            #         c = dict_other_date.get('current_obs').get('T')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('T'),
-            #             dict_other_date.get('previous_obs').get('T'),
-            #             0
-            #         )
-            #         st.metric(
-            #             label='Température',
-            #             value=(f'{(c):.1f} °C') if c is not None else None,
-            #             delta=(f'{d:.1f} °C') if d is not None else None
-            #         )
-            #     with col12:
-            #         c = dict_other_date.get('current_obs').get('U')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('U'), 
-            #             dict_other_date.get('previous_obs').get('U'),
-            #             0
-            #         )
-            #         st.metric(
-            #             label='Humidité',
-            #             value=(f'{c} %') if c is not None else None,
-            #             delta=(f'{d} %') if d is not None else None
-            #         )
-            #     with col13:
-            #         c = dict_other_date.get('current_obs').get('FF')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('FF'),
-            #             dict_other_date.get('previous_obs').get('FF'),
-            #             0
-            #         )
-            #         st.metric(
-            #             label='Vent',
-            #             value=(f'{(c*3.6):.0f} km/h') if c is not None else None,
-            #             delta=(f'{(d*3.6):.0f} km/h') if d is not None else None
-            #         )
-            #     with col14:
-            #         c = dict_other_date.get('current_obs').get('RR1')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('RR1'),
-            #             dict_other_date.get('previous_obs').get('RR1'),
-            #             0
-            #         )
-            #         st.metric(
-            #             label='Précipitations 1h',
-            #             value=(f'{c:.1f} mm') if c is not None else None,
-            #             delta=(f'{d:.1f} mm') if d is not None else None
-            #         )
-
-            #     col15, col16, col17, col18 = st.columns(4)
-            #     with col15:
-            #         c = dict_other_date.get('current_obs').get('VV')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('VV'),
-            #             dict_other_date.get('previous_obs').get('VV'),
-            #             0
-            #         )
-            #         st.metric(
-            #             label='Visibilité',
-            #             value=(f'{(c/1000):.1f} km') if c is not None else None,
-            #             delta=(f'{(d/1000):.1f} km') if d is not None else None
-            #         )
-            #     with col16:
-            #         c = dict_other_date.get('current_obs').get('NEIGETOT')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('NEIGETOT'),
-            #             dict_other_date.get('previous_obs').get('NEIGETOT'),
-            #             0
-            #         )
-            #         st.metric(
-            #             label='Neige',
-            #             value=(f'{(c*100):.0f} cm') if c is not None else None,
-            #             delta=(f'{(d*100):.0f} cm') if d is not None else None
-            #         )
-            #     with col17:
-            #         c = dict_other_date.get('current_obs').get('INS')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('INS'),
-            #             dict_other_date.get('previous_obs').get('INS'),
-            #             0
-            #         )
-            #         st.metric(
-            #             label='Ensoleillement',
-            #             value=(f'{c} min') if c is not None else None,
-            #             delta=(f'{d} min') if d is not None else None
-            #         )
-            #     with col18:
-            #         c = dict_other_date.get('current_obs').get('PSTAT')
-            #         d = utils.calculate_delta(
-            #             dict_other_date.get('current_obs').get('PSTAT'),
-            #             dict_other_date.get('previous_obs').get('PSTAT'),
-            #             0.1
-            #         )
-            #         st.metric(
-            #             label='Pression',
-            #             value=(f'{(c):.0f} hPa') if c is not None else None,
-            #             delta=(f'{(d):.0f} hPa') if d is not None else None
-            #         )
+                    col15, col16, col17, col18 = st.columns(4)
+                    with col15:
+                        c = dict_other_date.get('current_observation').get('VV')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('VV'),
+                            dict_other_date.get('previous_observation').get('VV'),
+                            0
+                        )
+                        st.metric(
+                            label='Visibilité',
+                            value=(f'{(c/1000):.1f} km') if c is not None else None,
+                            delta=(f'{(d/1000):.1f} km') if d is not None else None
+                        )
+                    with col16:
+                        c = dict_other_date.get('current_observation').get('NEIGETOT')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('NEIGETOT'),
+                            dict_other_date.get('previous_observation').get('NEIGETOT'),
+                            0
+                        )
+                        st.metric(
+                            label='Neige',
+                            value=(f'{(c*100):.0f} cm') if c is not None else None,
+                            delta=(f'{(d*100):.0f} cm') if d is not None else None
+                        )
+                    with col17:
+                        c = dict_other_date.get('current_observation').get('INS')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('INS'),
+                            dict_other_date.get('previous_observation').get('INS'),
+                            0
+                        )
+                        st.metric(
+                            label='Ensoleillement',
+                            value=(f'{c} min') if c is not None else None,
+                            delta=(f'{d} min') if d is not None else None
+                        )
+                    with col18:
+                        c = dict_other_date.get('current_observation').get('PSTAT')
+                        d = utils.calculate_delta(
+                            dict_other_date.get('current_observation').get('PSTAT'),
+                            dict_other_date.get('previous_observation').get('PSTAT'),
+                            0.1
+                        )
+                        st.metric(
+                            label='Pression',
+                            value=(f'{(c):.0f} hPa') if c is not None else None,
+                            delta=(f'{(d):.0f} hPa') if d is not None else None
+                        )
 
         else:
             st.warning(f'⏲️ L\'heure sélectionnée est trop récente : elle ne peut '
@@ -655,11 +730,17 @@ if st.session_state.selected_city:
 
     # Get data for selected year
     if st.session_state.visualization_button_clicked:
-        st.session_state.climatological_data = get_year_climatological_data(
-            st.session_state.nearest_station_info.get('id_station'),
-            st.session_state.year_for_visualization
-        )
-        
+        try:
+            st.session_state.climatological_data = get_year_climatological_data(
+                st.session_state.nearest_station_info.get('id_station'),
+                st.session_state.year_for_visualization
+            )
+        except Exception as e:
+            st.error(f'''☔ Une erreur est apparue !  
+                    {str(e)}
+            ''')
+            st.stop()
+
         # Layout category of variables selection in radio widget
         st.radio(
             label='Quelle catégorie de variables souhaitez-vous visualiser ?',
