@@ -142,7 +142,7 @@ def get_other_date_observation(id_station: str, requested_date: date, requested_
             other_date_order_id)
         response_code = other_date_climatological_response.status_code
         n_tries =+ 1
-        sleep(5)
+        sleep(10)
     
     if other_date_climatological_response.status_code == 201:
         try:
@@ -220,8 +220,9 @@ def get_year_climatological_data(id_station: str, year: int) -> pd.DataFrame:
     while response_code == 204 and n_tries < 5:
         visualization_climatological_response = Client().order_recovery(
                 visualization_order_id)
+        response_code = visualization_climatological_response.status_code
         n_tries =+ n_tries
-        sleep(5)
+        sleep(10)
     
     if visualization_climatological_response.status_code == 201:
         try:
