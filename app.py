@@ -857,7 +857,7 @@ else:
 st.subheader('A propos de l\'application')
 
 st.markdown('''
-    L' application VizMétéo permet d\'afficher des **données publiques d\'observation 
+    L' application MétéoViz permet d\'afficher les **données publiques d\'observation 
     ou de climatologie pour la France** à partir des API de Météo France.
 ''')
 
