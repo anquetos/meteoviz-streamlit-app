@@ -9,8 +9,8 @@ MétéoViz est une application développée avec le *framework* Streamlit permet
 
 Pour une station d'observation spécifique, il possible de :
 1. visualiser en temps réel les observations les plus récentes ;
-1. visualiser les données d'observation à une date et une heure antérieure ;
-1. visualiser et afficher les statistiques des données d'observation pour une année entière.
+1. visualiser les données d'observation à une date et une heure antérieures ;
+1. visualiser et afficher les statistiques des données d'observation pour une année complète.
 
 :uk:
 
@@ -21,7 +21,7 @@ MétéoViz is an application developed with the Streamlit *framework* that lets 
 For a specific observation station, it is possible to :
 1. view the most recent observations in real time ;
 1. view observation data for a previous date and time;
-1. view and display observation data statistics for an entire year.
+1. view and display observation data statistics for a full year.
 
 ## Observations en temps réel / *Real time observations*
 
