@@ -27,10 +27,9 @@ def search_address(q: str, limit: int = 5, autocomplete: int = 0, search_type: s
 
     r = requests.get(SEARCH_URL, params=payload)
 
-    if r.status_code != 200 or not r.json().get('features'):
-        return []
+    r.raise_for_status()
 
-    return _format_response(r)
+    return _format_response(r=r)
 
 
 def reverse_address(lon: float, lat: float, limit: int = 1, search_type: str = 'street') -> list[dict]:
@@ -52,13 +51,15 @@ def reverse_address(lon: float, lat: float, limit: int = 1, search_type: str = '
         'type': search_type
     }
 
+    if not (isinstance(lon, float) and isinstance(lat, float)):
+        raise ValueError('lon/lat must be valid WGS-84 coordinates in float format.')
+
     n_loop = len(str(lat).split('.')[1])
 
     while n_loop != 0:
         r = requests.get(REVERSE_URL, params=payload)
 
-        if r.status_code != 200:
-            return []
+        r.raise_for_status()
 
         if r.json().get('features'):
             return _format_response(r=r)
