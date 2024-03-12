@@ -1,7 +1,7 @@
 """Constants needed for the modules and the Streamlit application"""
 
 # Météo France apis
-TOKEN_URL = 'https://portail-api.meteofrance.fr/token'
+# TOKEN_URL = 'https://portail-api.meteofrance.fr/token'
 STATION_LIST_URL = 'https://public-api.meteofrance.fr/public/DPObs/v1/liste-stations'
 HOURLY_OBSERVATION_URL = 'https://public-api.meteofrance.fr/public/DPObs/v1/station/horaire'
 ORDER_HOURLY_CLIMATOLOGICAL_URL = 'https://public-api.meteofrance.fr/public/DPClim/v1/commande-station/horaire'

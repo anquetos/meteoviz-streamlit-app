@@ -12,18 +12,21 @@ An APPLICATION_ID is needed, to get it :
 """
 
 import requests
+
 from streamlit import secrets
 
-import constants
+# import constants
 
 # Import ID from Streamlit secrets
 APPLICATION_ID = secrets.APPLICATION_ID
 
-class Client(object):
+
+class Client:
+    API_URL = 'https://portail-api.meteofrance.fr/'
 
     def __init__(self):
         self.session = requests.Session()
-
+        self.session.headers.update({'Accept': 'application/json'})
 
     def request(self, method, url, **kwargs):
         # First request will always need to obtain a token first
@@ -40,26 +43,24 @@ class Client(object):
 
         return response
 
-
     def token_has_expired(self, response):
         status = response.status_code
         content_type = response.headers['Content-Type']
-        repJson = response.text
+        rep_json = response.text
         if status == 401 and 'application/json' in content_type:
-            repJson = response.text
-            if 'Invalid JWT token' in repJson['description']:
-
+            rep_json = response.text
+            if 'Invalid JWT token' in rep_json['description']:
                 return True
-            
-        return False
 
+        return False
 
     def obtain_token(self):
         # Obtain new token
+        endpoint = 'token'
         data = {'grant_type': 'client_credentials'}
         headers = {'Authorization': 'Basic ' + APPLICATION_ID}
         access_token_response = requests.post(
-            constants.TOKEN_URL,
+            url=f'{self.API_URL}{endpoint}',
             data=data,
             verify=True,
             allow_redirects=False,
@@ -70,141 +71,170 @@ class Client(object):
         self.session.headers.update({'Authorization': 'Bearer %s' % token})
 
 
-    def get_stations_list(self) -> requests.Response:
-        """Get the list of observation stations from the API.
+class ObservationsData(Client):
+    def __init__(self):
+        super().__init__()
 
-        Returns:
-            requests.Response: Response from the API with the data in csv.
-        """
-        self.session.headers.update({'Accept': 'application/json'})
-        r = self.request(
-            method='GET',
-            url=constants.STATION_LIST_URL
-        )
+    def stations_list(self):
+        endpoint = 'public/DPObs/v1/liste-stations'
+        r = self.request(method='GET', url=f'{self.API_URL}{endpoint}')
 
-        return r
-    
+        r.raise_for_status()
 
-    def get_hourly_observation(self, id_station: str, date: str) -> requests.Response:
-        """Get all available parameters for the requested station and for the 
-        date/time closest to the requested date according to available data.
+        return r.text
 
-        Args:
-            id_station (str): station id number ;
-            date (str): requested date (ISO 8601 format with
-        TZ UTC AAAA-MM-JJThh:00:00Z).
 
-        Returns:
-            requests.Response: Response from the API with the data in json.
-        """
-        self.session.headers.update({'Accept': 'application/json'})
-        payload={
+class ObservationsPackages(Client):
+    def __init__(self):
+        super().__init__()
+
+    def every_six_minutes(self, id_station: str, response_format: str = 'json'):
+        endpoint = 'public/DPPaquetObs/v1/paquet/infrahoraire-6m'
+        payload = {
             'id_station': id_station,
-            'date': date,
-            'format': 'json'
+            'format': response_format
         }
-        r = self.request(
-            method='GET',
-            url=constants.HOURLY_OBSERVATION_URL,
-            params=payload
-        )
 
-        return r
-    
+        r = self.request(method='GET', url=f'{self.API_URL}{endpoint}', params=payload)
 
-    def order_hourly_climatological_data(
-            self, id_station: str, start_date: str, end_date: str) -> requests.Response:
-        """Order climatological data for the requested station for the period
-        defined by the start date and the end date at an hourly frequency.
+        r.raise_for_status()
 
-        Args:
-            id_station (str): station id number ;
-            start_date (str): requested start date (ISO 8601 format with
-        TZ UTC AAAA-MM-JJThh:00:00Z).
-            end_date (str): requested end date (ISO 8601 format with
-        TZ UTC AAAA-MM-JJThh:00:00Z).
+        if response_format == 'csv':
+            return r.text
+        return r.json()
 
-        Returns:
-            requests.Response: Response from the API with order id in a json.
-        """
-        self.session.headers.update({'Accept': 'application/json'})
-        payload={
-            'id-station': id_station,
-            'date-deb-periode': start_date,
-            'date-fin-periode': end_date
+    def every_hour(self, id_departement: int, response_format: str = 'json'):
+        endpoint = 'public/DPPaquetObs/v1/paquet/horaire'
+        payload = {
+            'id-departement': id_departement,
+            'format': response_format
         }
-        r = self.request(
-            method='GET',
-            url=constants.ORDER_HOURLY_CLIMATOLOGICAL_URL,
-            params=payload
-        )
 
-        return r
+        r = self.request(method='GET', url=f'{self.API_URL}{endpoint}', params=payload)
 
+        r.raise_for_status()
 
-    def order_daily_climatological_data(
-            self, id_station: str, start_date: str, end_date: str) -> requests.Response:
-        """Order climatological data for the requested station for the period
-        defined by the start date and the end date at a daily frequency.
-
-        Args:
-            id_station (str): station id number ;
-            start_date (str): requested start date (ISO 8601 format with
-        TZ UTC AAAA-MM-JJThh:00:00Z).
-            end_date (str): requested end date (ISO 8601 format with
-        TZ UTC AAAA-MM-JJThh:00:00Z).
-
-        Returns:
-            requests.Response: Response from the API with order id in a json.
-        """
-        '''
-        Get an order number for asynchronous download of daily weather
-        information for one observation station in a period of date.
-        Parameters :
-        - id_station : id number (string) ;
-        - start_date : start of period for the order (string) in ISO 8601 format
-        with TZ UTC AAAA-MM-JJThh:00:00Z ;
-        - end_date : end of period for the order (string) in ISO 8601 format
-        with TZ UTC AAAA-MM-JJThh:00:00Z.
-        '''
-        self.session.headers.update({'Accept': 'application/json'})
-        payload={
-            'id-station': id_station,
-            'date-deb-periode': start_date,
-            'date-fin-periode': end_date
-        }
-        r = self.request(
-            method='GET',
-            url=constants.ORDER_DAILY_CLIMATOLOGICAL_URL,
-            params=payload
-        )
-
-        return r
-    
-
-    def order_recovery(self, order_id: str) -> requests.Response:
-        """Retrieve data from an order.
-
-        Args:
-            order_id (str): id of the order.
-
-        Returns:
-            requests.Response: Response from the API with the data in csv.
-        """
-        self.session.headers.update({'Accept': 'application/json'})
-        payload={'id-cmde': order_id}
-        r = self.request(
-            method='GET',
-            url=constants.ORDER_RECOVERY_URL,
-            params=payload
-        )
-
-        return r
+        if response_format == 'csv':
+            return r.text
+        return r.json()
 
 
-def main():
-    pass
+#
+# def get_hourly_observation(self, id_station: str, date: str) -> requests.Response:
+#     """Get all available parameters for the requested station and for the
+#     date/time closest to the requested date according to available data.
+#
+#     Args:
+#         id_station (str): station id number ;
+#         date (str): requested date (ISO 8601 format with
+#     TZ UTC AAAA-MM-JJThh:00:00Z).
+#
+#     Returns:
+#         requests.Response: Response from the API with the data in json.
+#     """
+#     self.session.headers.update({'Accept': 'application/json'})
+#     payload = {
+#         'id_station': id_station,
+#         'date': date,
+#         'format': 'json'
+#     }
+#     r = self.request(
+#         method='GET',
+#         url=constants.HOURLY_OBSERVATION_URL,
+#         params=payload
+#     )
+#
+#     return r
+#
+# def order_hourly_climatological_data(
+#         self, id_station: str, start_date: str, end_date: str) -> requests.Response:
+#     """Order climatological data for the requested station for the period
+#     defined by the start date and the end date at an hourly frequency.
+#
+#     Args:
+#         id_station (str): station id number ;
+#         start_date (str): requested start date (ISO 8601 format with
+#     TZ UTC AAAA-MM-JJThh:00:00Z).
+#         end_date (str): requested end date (ISO 8601 format with
+#     TZ UTC AAAA-MM-JJThh:00:00Z).
+#
+#     Returns:
+#         requests.Response: Response from the API with order id in a json.
+#     """
+#     self.session.headers.update({'Accept': 'application/json'})
+#     payload = {
+#         'id-station': id_station,
+#         'date-deb-periode': start_date,
+#         'date-fin-periode': end_date
+#     }
+#     r = self.request(
+#         method='GET',
+#         url=constants.ORDER_HOURLY_CLIMATOLOGICAL_URL,
+#         params=payload
+#     )
+#
+#     return r
+#
+# def order_daily_climatological_data(
+#         self, id_station: str, start_date: str, end_date: str) -> requests.Response:
+#     """Order climatological data for the requested station for the period
+#     defined by the start date and the end date at a daily frequency.
+#
+#     Args:
+#         id_station (str): station id number ;
+#         start_date (str): requested start date (ISO 8601 format with
+#     TZ UTC AAAA-MM-JJThh:00:00Z).
+#         end_date (str): requested end date (ISO 8601 format with
+#     TZ UTC AAAA-MM-JJThh:00:00Z).
+#
+#     Returns:
+#         requests.Response: Response from the API with order id in a json.
+#     """
+#     '''
+#     Get an order number for asynchronous download of daily weather
+#     information for one observation station in a period of date.
+#     Parameters :
+#     - id_station : id number (string) ;
+#     - start_date : start of period for the order (string) in ISO 8601 format
+#     with TZ UTC AAAA-MM-JJThh:00:00Z ;
+#     - end_date : end of period for the order (string) in ISO 8601 format
+#     with TZ UTC AAAA-MM-JJThh:00:00Z.
+#     '''
+#     self.session.headers.update({'Accept': 'application/json'})
+#     payload = {
+#         'id-station': id_station,
+#         'date-deb-periode': start_date,
+#         'date-fin-periode': end_date
+#     }
+#     r = self.request(
+#         method='GET',
+#         url=constants.ORDER_DAILY_CLIMATOLOGICAL_URL,
+#         params=payload
+#     )
+#
+#     return r
+#
+# def order_recovery(self, order_id: str) -> requests.Response:
+#     """Retrieve data from an order.
+#
+#     Args:
+#         order_id (str): id of the order.
+#
+#     Returns:
+#         requests.Response: Response from the API with the data in csv.
+#     """
+#     self.session.headers.update({'Accept': 'application/json'})
+#     payload = {'id-cmde': order_id}
+#     r = self.request(
+#         method='GET',
+#         url=constants.ORDER_RECOVERY_URL,
+#         params=payload
+#     )
+#
+#     return r
 
 
 if __name__ == '__main__':
-    main()
+    obs = ObservationsPackages()
+    obs_data = obs.every_six_minutes('01071001')
+    print(obs_data)

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import math
 
@@ -5,10 +6,55 @@ import requests
 import pandas as pd
 from geopy import distance
 
-
 from meteo_france import Client
 import constants
+from weather_parameters import parameters_dict
 
+WEATHER_STATION_LIST_PATH = 'datasets/weather-stations-list.csv'
+
+
+# --- NEW functions
+
+def load_weather_stations_list() -> pd.DataFrame:
+    df = pd.read_csv(
+        WEATHER_STATION_LIST_PATH,
+        sep=';',
+        dtype={'Id_station': object},
+        parse_dates=['Date_ouverture']
+    )
+
+    df.columns = df.columns.str.lower()
+    df['nom_usuel'] = df['nom_usuel'].str.title()
+
+    return df
+
+
+def prepare_api_data_for_plot(data: dict, id_station: str) -> pd.DataFrame:
+    df = pd.json_normalize(data)
+
+    # Filter rows with desired 'id_station'
+    df = df.loc[df['geo_id_insee'] == id_station]
+
+    # Subset the DataFrame with desired weather parameters
+    df = df[[key for key in parameters_dict.keys() if key in df.columns]]
+
+    # Convert 'validity_time' to local datetime
+    df['validity_time'] = pd.to_datetime(df['validity_time'], format='%Y-%m-%dT%H:%M:%SZ', utc=True)
+    df['validity_time'] = df['validity_time'].dt.tz_convert('Europe/Paris')
+
+    # Drop columns with only 'None' value
+    df = df.dropna(axis='columns', how='all')
+
+    # Convert unit of numerical values
+    for column in df.select_dtypes(include='number').columns:
+        conversion = parameters_dict[column].get('conversion')
+        df[column] = df[column].apply(conversion)
+
+    return df
+
+
+# ---
+######################################################################"""
 
 def download_station_list_to_csv():
     """Download in csv the stations list requested from Météo France API."""
@@ -21,7 +67,7 @@ def download_station_list_to_csv():
 
     if r.status_code == requests.codes.ok:
         # Generate the csv filepath
-        p = Path(__file__).parent.absolute() 
+        p = Path(__file__).parent.absolute()
         q = p / DATASETS_FOLDER
         Path(q).mkdir(parents=True, exist_ok=True)
         csv_filepath = q / FILENAME
@@ -35,59 +81,59 @@ def download_station_list_to_csv():
         print(f'Erreur : status_code {r.status_code} - {r.reason}')
 
 
-def search_city(query: str) -> requests.Response:
-    """Search for an adresse with the Adresse API.
-
-    Args:
-        query (str): searched city.
-
-    Returns:
-        requests.Response: response from the API.
-    """
-    r = requests.get(
-    constants.ADRESS_SEARCH_URL,
-    params={
-        'q': query,
-        'type': 'municipality',
-        'limit': 5,
-        'autocomplete': 0
-    }
-)
-    
-    return r
-
-
-def _reverse_search_city(lat_lon: list) -> requests.Response:
-    """search a city from its coordinates.
-
-    Args:
-        lat_lon (list): city coordinates.
-
-    Returns:
-        requests.Response: response from the API or an empty list if no result
-        found.
-    """
-    lat = lat_lon[0]
-    lon = lat_lon[1]
-    x = len(str(lat))
-
-    while x > 0:
-        url = constants.REVERSE_ADRESS_URL
-        payload = {
-            'lon': lon,
-            'lat': str(lat)[:x],
-            'type': 'street',
-            'limit': 1
-        }
-        r = requests.get(url, params=payload)
-
-        if r.json().get('features'):
-                return r.json().get('features')[0]
-        else:
-            x -= 1
-    
-    return r.json().get('features')
-
+# def search_city(query: str) -> requests.Response:
+#     """Search for an adresse with the Adresse API.
+#
+#     Args:
+#         query (str): searched city.
+#
+#     Returns:
+#         requests.Response: response from the API.
+#     """
+#     r = requests.get(
+#     constants.ADRESS_SEARCH_URL,
+#     params={
+#         'q': query,
+#         'type': 'municipality',
+#         'limit': 5,
+#         'autocomplete': 0
+#     }
+# )
+#
+#     return r
+#
+#
+# def _reverse_search_city(lat_lon: list) -> requests.Response:
+#     """search a city from its coordinates.
+#
+#     Args:
+#         lat_lon (list): city coordinates.
+#
+#     Returns:
+#         requests.Response: response from the API or an empty list if no result
+#         found.
+#     """
+#     lat = lat_lon[0]
+#     lon = lat_lon[1]
+#     x = len(str(lat))
+#
+#     while x > 0:
+#         url = constants.REVERSE_ADRESS_URL
+#         payload = {
+#             'lon': lon,
+#             'lat': str(lat)[:x],
+#             'type': 'street',
+#             'limit': 1
+#         }
+#         r = requests.get(url, params=payload)
+#
+#         if r.json().get('features'):
+#                 return r.json().get('features')[0]
+#         else:
+#             x -= 1
+#
+#     return r.json().get('features')
+#
 
 def _get_nearest_station_information(lat_lon: list) -> dict:
     """Get information for the nearest observation station calculated with
@@ -114,7 +160,7 @@ def _get_nearest_station_information(lat_lon: list) -> dict:
             lambda x: distance.distance(
                 [x['latitude'], x['longitude']],
                 lat_lon).km,
-                axis='columns'
+            axis='columns'
         )
 
         return df.nsmallest(1, 'distance').to_dict('records')[0]
@@ -163,16 +209,17 @@ def calculate_delta(x: float, y: float, rel_tol: float) -> float:
     """
     if x is None or y is None:
         return None
-    
+
     # Check if delta is close to 0
     if math.isclose(x, y, rel_tol=rel_tol):
-        return None    
-    
+        return None
+
     return x - y
- 
+
 
 def main():
     pass
+
 
 if __name__ == '__main__':
     main()
