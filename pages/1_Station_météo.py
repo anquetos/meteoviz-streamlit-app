@@ -37,7 +37,7 @@ def create_selected_city_marker(coordinates: list[float]) -> folium.Marker:
     return folium.Marker(
         location=coordinates,
         popup=f'{st.session_state.selected_city["label"]}, {st.session_state.selected_city["context"]}',
-        tooltip='Commune sélectionnée',
+        tooltip=st.session_state.selected_city['label'],
         icon=folium.Icon(icon='glyphicon-home', color='darkred', prefix='glyphicon')
     )
 
@@ -45,7 +45,7 @@ def create_selected_city_marker(coordinates: list[float]) -> folium.Marker:
 def create_stations_markers(station_dict: dict) -> folium.Marker:
     return folium.Marker(
         location=[station_dict['latitude'], station_dict['longitude']],
-        popup=f'Distance de {st.session_state.selected_city["label"]} : {station_dict["distance_km"]} km',
+        popup=f'{station_dict["distance_km"]} km de {st.session_state.selected_city["label"]}',
         tooltip=f'Station : {station_dict["nom_usuel"]}',
         icon=folium.Icon(icon='glyphicon-star', color='green', prefix='glyphicon')
         if nearest_stations.index(station_dict) == 0

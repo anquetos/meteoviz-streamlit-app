@@ -1,66 +1,217 @@
+import folium
 import streamlit as st
+from streamlit_folium import st_folium
+from geopy import distance
+import plotly.express as px
 
 from api_adresse import AddressSearch
+from meteo_france import ObservationsPackages
+from utils import load_weather_stations_list, prepare_observation_data_for_plot
+from weather_parameters import parameters_dict
 
-# -- Initialize Session States
+# -- Page configuration
+st.set_page_config(layout='wide')
 
-if 'searched_city_results' not in st.session_state:
-    st.session_state['searched_city_results'] = []
+
+# -- Functions : tab1 (station)
+
+@st.cache_data(show_spinner=True)
+def calculate_nearest_stations(location: list[float], n_stations: int = 5) -> list[dict]:
+    df_stations = load_weather_stations_list()
+
+    df_stations['distance_km'] = df_stations.apply(
+        lambda x: round(
+            distance.distance([x['latitude'], x['longitude']], location).km, 0),
+        axis='columns'
+    )
+
+    return (df_stations.nsmallest(n=n_stations, columns='distance_km')
+            .to_dict(orient='records'))
+
+
+def create_folium_map(location: list[float], zoom_start: int = 5) -> folium.Map:
+    folium_map = folium.Map(
+        location=location,
+        zoom_start=zoom_start,
+        zoom_control=True,
+        tiles='GeoportailFrance_plan',
+        scrollWheelZoom=False,
+        dragging=True
+    )
+    return folium_map
+
+
+def create_selected_city_marker(location: list[float]) -> folium.Marker:
+    city_marker = folium.Marker(
+        location=location,
+        tooltip=f'Commune : {st.session_state.selected_city["label"]}',
+        icon=folium.Icon(icon='glyphicon-home', color='darkred', prefix='glyphicon')
+    )
+    return city_marker
+
+
+def create_stations_markers(station_dict: dict) -> folium.Marker:
+    stations_markers = folium.Marker(
+        location=[station_dict['latitude'], station_dict['longitude']],
+        tooltip=f'Station : {station_dict["nom_usuel"]}',
+        icon=folium.Icon(icon='glyphicon-star', color='green', prefix='glyphicon')
+        if nearest_stations_list.index(station_dict) == 0
+        else folium.Icon(icon='glyphicon-map-marker', color='blue', prefix='glyphicon')
+    )
+    return stations_markers
+
+
+# -- Functions : tab2 (weather)
+
+def get_station_department_from_id(id_station: str) -> int:
+    if int(id_station[:3]) >= 970:
+        return int(id_station[:3])
+    return int(id_station[:2])
+
+
+# -- Application : sidebar
+sb = st.sidebar
 
 if 'selected_city' not in st.session_state:
-    st.session_state['selected_city'] = {}
+    st.session_state.selected_city = {}
 
-if 'selected_city_index' not in st.session_state:
-    st.session_state['selected_city_index'] = 0
+searched_city = sb.text_input(
+    label='Quelle commune cherchez-vous ?', placeholder='Saisissez votre recherche...')
 
-if 'selected_station' not in st.session_state:
-    st.session_state['selected_station'] = ''
+if len(searched_city) >= 3:
+    address = AddressSearch()
+    address_results = address.search_address(searched_city)
+else:
+    st.session_state.selected_city = {}
+    address_results = []
 
-# -- Application Home page main code
+sb.selectbox(
+    label='Faites votre choix',
+    options=[option for option in address_results],
+    format_func=lambda x: f'{x.get("label")}, {x.get("context")}',
+    placeholder='Aucun résultat disponible',
+    key='selected_city'
+)
+
+# -- Application : main page
 
 st.title('MétéoViz')
 
-st.subheader('Choix de la commune', divider='rainbow')
+if 'selected_station' not in st.session_state:
+    st.session_state.selected_station = {}
 
-searched_city_string = st.text_input(
-    label='Quelle commune cherchez-vous ?',
-    placeholder='Saisissez votre recherche...'
-)
+tab1, tab2 = st.tabs(['Station', 'Météo'])
 
-if not searched_city_string:
-    searched_city_results = []
-elif len(searched_city_string) < 3:
-    searched_city_results = []
-    st.warning('Votre recherche doit contenir au minimum 3 caractères.')
-else:
-    address = AddressSearch()
-    st.session_state['searched_city_results'] = address.search_address(searched_city_string)
+# -- Application : tab1 (station)
 
-selected_city = st.selectbox(
-    label='Faites votre choix',
-    index=st.session_state['selected_city_index'],
-    options=[option for option in st.session_state['searched_city_results']],
-    format_func=lambda x: f'{x.get("label")}, {x.get("context")}'
-)
+with tab1:
+    coordinates = [st.session_state.selected_city.get('lat', 46.227638),
+                   st.session_state.selected_city.get('lon', 2.213749)]
 
-if selected_city:
-    st.session_state['selected_city'] = selected_city
-    st.session_state['selected_city_index'] = st.session_state['searched_city_results'].index(selected_city)
+    # Initialize Folium map
+    m = create_folium_map(location=coordinates)
 
-# [result.get('label') for result in searched_city_results]
+    if st.session_state.selected_city:
+        nearest_stations_list = calculate_nearest_stations(coordinates)
+        # Add selected city marker
+        selected_city_marker = create_selected_city_marker(coordinates)
+        selected_city_marker.add_to(m)
+    else:
+        nearest_stations_list = []
 
-# st.subheader('Sélectionnez une commune')
+    if nearest_stations_list:
+        # Add nearest stations markers
+        for station in nearest_stations_list:
+            station_marker = create_stations_markers(station)
+            station_marker.add_to(m)
 
-# city = AddressSearch()
-# if search:
-#     city_results = city.search_address(search)
-#
-#
-#     st.write(city_results)
+        # Fit map bounds to nearest stations coordinates
+        m.fit_bounds(
+            [[station['latitude'], station['longitude']] for station in nearest_stations_list]
+        )
 
-#
-# # -- Application functions
-#
+    # Render map
+    st_data = st_folium(m, width=1075, height=400)
+
+    st.selectbox(
+        label='Stations météorologiques',
+        options=nearest_stations_list,
+        format_func=lambda x: f'{x.get("nom_usuel")} ({x.get("distance_km")} km)',
+        key='selected_station'
+    )
+
+    st.write('Station', st.session_state.selected_station)
+
+    # st.markdown(f'''
+    #     La station ***{nearest_station['nom_usuel']}***
+    #     est la plus proche de *{st.session_state.selected_city['label']}*
+    #     avec une distance de *{nearest_station['distance_km']} km*.
+    #     Cette station est sélectionnée par défaut, vous pouvez en choisir
+    #     une autre en bas de cette page.
+    # ''')
+
+# -- Application : tab2 (weather)
+
+with tab2:
+    if st.session_state.selected_station:
+        selected_id_station = st.session_state.selected_station['id_station']
+        selected_station_department = get_station_department_from_id(selected_id_station)
+
+    obs = ObservationsPackages()
+    # obs_data = obs.every_six_minutes(id_station)
+    obs_data = obs.every_hour(selected_station_department)
+    obs_df = prepare_observation_data_for_plot(obs_data, selected_id_station)
+    obs_parameters = obs_df.select_dtypes(include='number').columns
+
+    row1 = row2 = st.columns(4)
+
+    if len(obs_parameters) <= 4:
+        rows = row1
+    elif len(obs_parameters) <= 8:
+        rows = row1 + row2
+
+    for i, col in enumerate(rows):
+        if i < len(obs_parameters):
+            parameter = obs_parameters[i]
+            unit = parameters_dict[parameter].get('unit')
+            value = f'{obs_df[parameter].values[0]} '
+            delta = round(obs_df[parameter].values[0] - obs_df[parameter].values[1], 1)
+            tile = col.container(height=125)
+            tile.metric(
+                label=parameters_dict[parameter].get('category'),
+                value=f'{value} {unit}',
+                delta=f'{delta} {unit}' if delta != 0 else None
+            )
+        else:
+            tile = col.container(height=125, border=False)
+
+    st.subheader('Dernières 24 h')
+
+    for column in obs_parameters:
+        if parameters_dict[column].get('plot_type') == 'line':
+            fig = px.line(obs_df, x='validity_time', y=column)
+        elif parameters_dict[column].get('plot_type') == 'bar':
+            fig = px.bar(obs_df, x='validity_time', y=column)
+            fig.update_yaxes(rangemode='tozero')
+        elif parameters_dict[column].get('plot_type') == 'area':
+            fig = px.area(obs_df, x='validity_time', y=column)
+        else:
+            break
+
+        description = parameters_dict[column].get('description')
+        label = parameters_dict[column].get('label')
+        unit = parameters_dict[column].get('unit')
+
+        fig.update_layout(
+            title_text=description,
+            xaxis_title='',
+            yaxis_title=f'{label} ({unit})',
+            margin=dict(b=0),
+            height=300
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
 # @st.cache_data
 # def import_api_daily_parameters() -> pd.DataFrame:
 #     """Import climatological api parameters in a DataFrame"""

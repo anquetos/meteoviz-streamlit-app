@@ -1,4 +1,6 @@
+import datetime
 import json
+from io import StringIO
 from pathlib import Path
 import math
 
@@ -16,12 +18,8 @@ WEATHER_STATION_LIST_PATH = 'datasets/weather-stations-list.csv'
 # --- NEW functions
 
 def load_weather_stations_list() -> pd.DataFrame:
-    df = pd.read_csv(
-        WEATHER_STATION_LIST_PATH,
-        sep=';',
-        dtype={'Id_station': object},
-        parse_dates=['Date_ouverture']
-    )
+    df = pd.read_csv(WEATHER_STATION_LIST_PATH, sep=';', dtype={'Id_station': object},
+                     parse_dates=['Date_ouverture'])
 
     df.columns = df.columns.str.lower()
     df['nom_usuel'] = df['nom_usuel'].str.title()
@@ -29,7 +27,7 @@ def load_weather_stations_list() -> pd.DataFrame:
     return df
 
 
-def prepare_api_data_for_plot(data: dict, id_station: str) -> pd.DataFrame:
+def prepare_observation_data_for_plot(data: dict, id_station: str) -> pd.DataFrame:
     df = pd.json_normalize(data)
 
     # Filter rows with desired 'id_station'
@@ -49,6 +47,34 @@ def prepare_api_data_for_plot(data: dict, id_station: str) -> pd.DataFrame:
     for column in df.select_dtypes(include='number').columns:
         conversion = parameters_dict[column].get('conversion')
         df[column] = df[column].apply(conversion)
+
+    return df
+
+
+def prepare_climatological_data_for_plot(data: str) -> pd.DataFrame:
+    # Import data in a DataFrame
+    df = pd.read_csv(StringIO(data), sep=';', dtype={'POSTE': 'string'})
+
+    # Convert 'validity_time' to local datetime
+    df['DATE'] = pd.to_datetime(df['DATE'], format='%Y%m%d', utc=True)
+    df['DATE'] = df['DATE'].dt.tz_convert('Europe/Paris')
+
+    # Drop columns with only 'None' value
+    df = df.dropna(axis='columns', how='all')
+
+    # Convert 'object' data to 'float'
+    string_col = df.select_dtypes(include=['object']).columns
+    for col in string_col:
+        df[col] = df[col].str.replace(',', '.')
+        df[col] = df[col].astype('float')
+
+    # df['DAY'] = df['DATE'].dt.day
+    # df['MONTH'] = df['DATE'].dt.month
+    # df['YEAR'] = df['DATE'].dt.year
+    # df['DAYOFYEAR'] = df['DATE'].dt.to_period(freq='D').dt.dayofyear
+
+
+    # df['YEARS_PERIOD'] = f'{df['DATE'].dt.year.min()}-{df['DATE'].dt.year.max()}'
 
     return df
 

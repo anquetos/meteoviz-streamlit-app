@@ -12,6 +12,7 @@ An APPLICATION_ID is needed, to get it :
 """
 
 import requests
+import time
 
 from streamlit import secrets
 
@@ -22,7 +23,8 @@ APPLICATION_ID = secrets.APPLICATION_ID
 
 
 class Client:
-    API_URL = 'https://portail-api.meteofrance.fr/'
+    PORTAIL_API_URL = 'https://portail-api.meteofrance.fr/'
+    PUBLIC_API_URL = 'https://public-api.meteofrance.fr/public/'
 
     def __init__(self):
         self.session = requests.Session()
@@ -43,10 +45,10 @@ class Client:
 
         return response
 
-    def token_has_expired(self, response):
+    @staticmethod
+    def token_has_expired(response):
         status = response.status_code
         content_type = response.headers['Content-Type']
-        rep_json = response.text
         if status == 401 and 'application/json' in content_type:
             rep_json = response.text
             if 'Invalid JWT token' in rep_json['description']:
@@ -60,7 +62,7 @@ class Client:
         data = {'grant_type': 'client_credentials'}
         headers = {'Authorization': 'Basic ' + APPLICATION_ID}
         access_token_response = requests.post(
-            url=f'{self.API_URL}{endpoint}',
+            url=f'{self.PORTAIL_API_URL}{endpoint}',
             data=data,
             verify=True,
             allow_redirects=False,
@@ -76,8 +78,8 @@ class ObservationsData(Client):
         super().__init__()
 
     def stations_list(self):
-        endpoint = 'public/DPObs/v1/liste-stations'
-        r = self.request(method='GET', url=f'{self.API_URL}{endpoint}')
+        endpoint = 'DPObs/v1/liste-stations'
+        r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}')
 
         r.raise_for_status()
 
@@ -89,13 +91,13 @@ class ObservationsPackages(Client):
         super().__init__()
 
     def every_six_minutes(self, id_station: str, response_format: str = 'json'):
-        endpoint = 'public/DPPaquetObs/v1/paquet/infrahoraire-6m'
+        endpoint = 'DPPaquetObs/v1/paquet/infrahoraire-6m'
         payload = {
             'id_station': id_station,
             'format': response_format
         }
 
-        r = self.request(method='GET', url=f'{self.API_URL}{endpoint}', params=payload)
+        r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}', params=payload)
 
         r.raise_for_status()
 
@@ -104,19 +106,59 @@ class ObservationsPackages(Client):
         return r.json()
 
     def every_hour(self, id_departement: int, response_format: str = 'json'):
-        endpoint = 'public/DPPaquetObs/v1/paquet/horaire'
+        endpoint = 'DPPaquetObs/v1/paquet/horaire'
         payload = {
             'id-departement': id_departement,
             'format': response_format
         }
 
-        r = self.request(method='GET', url=f'{self.API_URL}{endpoint}', params=payload)
+        r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}', params=payload)
 
         r.raise_for_status()
 
         if response_format == 'csv':
             return r.text
         return r.json()
+
+
+class ClimatologicalData(Client):
+
+    def __init__(self):
+        super().__init__()
+
+    def daily_data(self, id_station: str, start_date: str, end_date):
+        endpoint = 'DPClim/v1/commande-station/quotidienne'
+        payload = {
+            'id-station': id_station,
+            'date-deb-periode': start_date,
+            'date-fin-periode': end_date,
+        }
+
+        r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}', params=payload)
+
+        r.raise_for_status()
+
+        time.sleep(0.5)
+
+        id_order = r.json()['elaboreProduitAvecDemandeResponse']['return']
+
+        return self._download_order(id_order)
+
+    def _download_order(self, id_order) -> str:
+        endpoint = 'DPClim/v1/commande/fichier'
+        payload = {
+            'id-cmde': id_order
+        }
+
+        status_code = 204
+        r = ''
+        while status_code == 204:
+            r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}', params=payload)
+            r.raise_for_status()
+            status_code = r.status_code
+            time.sleep(0.5)
+
+        return r.text
 
 
 #
@@ -235,6 +277,9 @@ class ObservationsPackages(Client):
 
 
 if __name__ == '__main__':
-    obs = ObservationsPackages()
-    obs_data = obs.every_six_minutes('01071001')
-    print(obs_data)
+    pass
+    # clim = ClimatologicalData()
+    # clim_data = clim.daily_data('30189001', '2023-03-11T00:00:00Z', '2024-03-11T00:00:00Z')
+    # print(clim_data)
+
+
