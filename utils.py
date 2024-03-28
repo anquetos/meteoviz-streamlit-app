@@ -1,5 +1,3 @@
-import datetime
-import json
 from io import StringIO
 from pathlib import Path
 import math
@@ -10,7 +8,7 @@ from geopy import distance
 
 from meteo_france import Client
 import constants
-from weather_parameters import parameters_dict
+from weather_parameters import obs_parameters_dict, hourly_clim_parameters_dict
 
 WEATHER_STATION_LIST_PATH = 'datasets/weather-stations-list.csv'
 
@@ -27,14 +25,14 @@ def load_weather_stations_list() -> pd.DataFrame:
     return df
 
 
-def prepare_observation_data_for_plot(data: dict, id_station: str) -> pd.DataFrame:
+def observation_data_to_df(data: dict, id_station: str) -> pd.DataFrame:
     df = pd.json_normalize(data)
 
     # Filter rows with desired 'id_station'
     df = df.loc[df['geo_id_insee'] == id_station]
 
     # Subset the DataFrame with desired weather parameters
-    df = df[[key for key in parameters_dict.keys() if key in df.columns]]
+    df = df[[key for key in obs_parameters_dict.keys() if key in df.columns]]
 
     # Convert 'validity_time' to local datetime
     df['validity_time'] = pd.to_datetime(df['validity_time'], format='%Y-%m-%dT%H:%M:%SZ', utc=True)
@@ -45,19 +43,25 @@ def prepare_observation_data_for_plot(data: dict, id_station: str) -> pd.DataFra
 
     # Convert unit of numerical values
     for column in df.select_dtypes(include='number').columns:
-        conversion = parameters_dict[column].get('conversion')
+        conversion = obs_parameters_dict[column].get('conversion')
         df[column] = df[column].apply(conversion)
 
     return df
 
 
-def prepare_climatological_data_for_plot(data: str) -> pd.DataFrame:
+def climatological_data_to_df(data: str) -> pd.DataFrame:
     # Import data in a DataFrame
     df = pd.read_csv(StringIO(data), sep=';', dtype={'POSTE': 'string'})
 
-    # Convert 'validity_time' to local datetime
-    df['DATE'] = pd.to_datetime(df['DATE'], format='%Y%m%d', utc=True)
-    df['DATE'] = df['DATE'].dt.tz_convert('Europe/Paris')
+    if 'DATE' not in df.columns:
+        return pd.DataFrame()
+
+    # Subset the DataFrame with desired weather parameters
+    df = df[[key for key in hourly_clim_parameters_dict.keys() if key in df.columns]]
+
+    # Convert 'DATE' to local datetime
+    df['DATE'] = pd.to_datetime(df['DATE'], format='%Y%m%d%H', utc=True)
+    # df['DATE'] = df['DATE'].dt.tz_convert('Europe/Paris')
 
     # Drop columns with only 'None' value
     df = df.dropna(axis='columns', how='all')
@@ -68,19 +72,16 @@ def prepare_climatological_data_for_plot(data: str) -> pd.DataFrame:
         df[col] = df[col].str.replace(',', '.')
         df[col] = df[col].astype('float')
 
-    # df['DAY'] = df['DATE'].dt.day
-    # df['MONTH'] = df['DATE'].dt.month
-    # df['YEAR'] = df['DATE'].dt.year
-    # df['DAYOFYEAR'] = df['DATE'].dt.to_period(freq='D').dt.dayofyear
-
-
-    # df['YEARS_PERIOD'] = f'{df['DATE'].dt.year.min()}-{df['DATE'].dt.year.max()}'
+    # Convert unit of numerical values
+    # for column in df.select_dtypes(include='number').columns:
+    #     conversion = hourly_clim_parameters_dict[column].get('conversion')
+    #     df[column] = df[column].apply(conversion)
 
     return df
 
 
 # ---
-######################################################################"""
+# #####################################################################"""
 
 def download_station_list_to_csv():
     """Download in csv the stations list requested from Météo France API."""

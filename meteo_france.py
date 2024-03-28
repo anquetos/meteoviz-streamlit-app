@@ -135,14 +135,32 @@ class ClimatologicalData(Client):
         }
 
         r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}', params=payload)
-
+        time.sleep(2)
         r.raise_for_status()
-
-        time.sleep(0.5)
 
         id_order = r.json()['elaboreProduitAvecDemandeResponse']['return']
 
-        return self._download_order(id_order)
+        data = self._download_order(id_order)
+
+        return data
+
+    def hourly_data(self, id_station: str, start_date: str, end_date):
+        endpoint = 'DPClim/v1/commande-station/horaire'
+        payload = {
+            'id-station': id_station,
+            'date-deb-periode': start_date,
+            'date-fin-periode': end_date,
+        }
+
+        r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}', params=payload)
+        time.sleep(2)
+        r.raise_for_status()
+
+        id_order = r.json()['elaboreProduitAvecDemandeResponse']['return']
+
+        data = self._download_order(id_order)
+
+        return data
 
     def _download_order(self, id_order) -> str:
         endpoint = 'DPClim/v1/commande/fichier'
@@ -153,10 +171,9 @@ class ClimatologicalData(Client):
         status_code = 204
         r = ''
         while status_code == 204:
+            time.sleep(1)
             r = self.request(method='GET', url=f'{self.PUBLIC_API_URL}{endpoint}', params=payload)
-            r.raise_for_status()
             status_code = r.status_code
-            time.sleep(0.5)
 
         return r.text
 

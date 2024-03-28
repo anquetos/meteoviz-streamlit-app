@@ -1,13 +1,22 @@
+import math
+import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import folium
+import pandas as pd
 import streamlit as st
+from dateutil.relativedelta import relativedelta
 from streamlit_folium import st_folium
 from geopy import distance
 import plotly.express as px
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
 
 from api_adresse import AddressSearch
-from meteo_france import ObservationsPackages
-from utils import load_weather_stations_list, prepare_observation_data_for_plot
-from weather_parameters import parameters_dict
+from meteo_france import ObservationsPackages, ClimatologicalData
+from utils import load_weather_stations_list, observation_data_to_df, climatological_data_to_df
+from weather_parameters import obs_parameters_dict, hourly_clim_parameters_dict
 
 # -- Page configuration
 st.set_page_config(layout='wide')
@@ -69,6 +78,11 @@ def get_station_department_from_id(id_station: str) -> int:
     return int(id_station[:2])
 
 
+def plot_last_observations(df, parameters):
+    from weather_parameters import obs_parameters_dict
+    pass
+
+
 # -- Application : sidebar
 sb = st.sidebar
 
@@ -100,117 +114,200 @@ st.title('MétéoViz')
 if 'selected_station' not in st.session_state:
     st.session_state.selected_station = {}
 
-tab1, tab2 = st.tabs(['Station', 'Météo'])
+tab1, tab2 = st.tabs(['Station', 'Observations'])
 
 # -- Application : tab1 (station)
 
+coordinates = [st.session_state.selected_city.get('lat', 46.227638),
+               st.session_state.selected_city.get('lon', 2.213749)]
+
+# Initialize Folium map
+m = create_folium_map(location=coordinates)
+
+if st.session_state.selected_city:
+    nearest_stations_list = calculate_nearest_stations(coordinates)
+    # Add selected city marker
+    selected_city_marker = create_selected_city_marker(coordinates)
+    selected_city_marker.add_to(m)
+else:
+    nearest_stations_list = []
+
+if nearest_stations_list:
+    # Add nearest stations markers
+    for station in nearest_stations_list:
+        station_marker = create_stations_markers(station)
+        station_marker.add_to(m)
+
+    # Fit map bounds to nearest stations coordinates
+    m.fit_bounds(
+        [[station['latitude'], station['longitude']] for station in nearest_stations_list]
+    )
+
 with tab1:
-    coordinates = [st.session_state.selected_city.get('lat', 46.227638),
-                   st.session_state.selected_city.get('lon', 2.213749)]
-
-    # Initialize Folium map
-    m = create_folium_map(location=coordinates)
-
-    if st.session_state.selected_city:
-        nearest_stations_list = calculate_nearest_stations(coordinates)
-        # Add selected city marker
-        selected_city_marker = create_selected_city_marker(coordinates)
-        selected_city_marker.add_to(m)
-    else:
-        nearest_stations_list = []
-
-    if nearest_stations_list:
-        # Add nearest stations markers
-        for station in nearest_stations_list:
-            station_marker = create_stations_markers(station)
-            station_marker.add_to(m)
-
-        # Fit map bounds to nearest stations coordinates
-        m.fit_bounds(
-            [[station['latitude'], station['longitude']] for station in nearest_stations_list]
-        )
-
     # Render map
     st_data = st_folium(m, width=1075, height=400)
 
-    st.selectbox(
-        label='Stations météorologiques',
-        options=nearest_stations_list,
-        format_func=lambda x: f'{x.get("nom_usuel")} ({x.get("distance_km")} km)',
-        key='selected_station'
-    )
+tab1.selectbox(
+    label='Stations météorologiques',
+    options=nearest_stations_list,
+    format_func=lambda x: f'{x.get("nom_usuel")} ({x.get("distance_km")} km)',
+    key='selected_station'
+)
 
-    st.write('Station', st.session_state.selected_station)
+tab1.write(st.session_state.selected_station)
 
-    # st.markdown(f'''
-    #     La station ***{nearest_station['nom_usuel']}***
-    #     est la plus proche de *{st.session_state.selected_city['label']}*
-    #     avec une distance de *{nearest_station['distance_km']} km*.
-    #     Cette station est sélectionnée par défaut, vous pouvez en choisir
-    #     une autre en bas de cette page.
-    # ''')
+# st.markdown(f'''
+#     La station ***{nearest_station['nom_usuel']}***
+#     est la plus proche de *{st.session_state.selected_city['label']}*
+#     avec une distance de *{nearest_station['distance_km']} km*.
+#     Cette station est sélectionnée par défaut, vous pouvez en choisir
+#     une autre en bas de cette page.
+# ''')
 
 # -- Application : tab2 (weather)
 
-with tab2:
-    if st.session_state.selected_station:
-        selected_id_station = st.session_state.selected_station['id_station']
-        selected_station_department = get_station_department_from_id(selected_id_station)
+if st.session_state.selected_station:
+    tab2.markdown('##### Dernier relevé')
+
+    selected_id_station = st.session_state.selected_station['id_station']
+    selected_station_department = get_station_department_from_id(selected_id_station)
 
     obs = ObservationsPackages()
-    # obs_data = obs.every_six_minutes(id_station)
     obs_data = obs.every_hour(selected_station_department)
-    obs_df = prepare_observation_data_for_plot(obs_data, selected_id_station)
+
+    obs_df = observation_data_to_df(obs_data, selected_id_station)
     obs_parameters = obs_df.select_dtypes(include='number').columns
+    n_obs_parameters = len(obs_parameters)
 
-    row1 = row2 = st.columns(4)
+    # Calculate the numbers of necessary cards to display all available parameters in 'st.metrics'
+    cards = tab2.columns(4) * math.ceil(n_obs_parameters / 4)
 
-    if len(obs_parameters) <= 4:
-        rows = row1
-    elif len(obs_parameters) <= 8:
-        rows = row1 + row2
-
-    for i, col in enumerate(rows):
+    for i, col in enumerate(cards):
         if i < len(obs_parameters):
             parameter = obs_parameters[i]
-            unit = parameters_dict[parameter].get('unit')
+            unit = obs_parameters_dict[parameter].get('unit')
             value = f'{obs_df[parameter].values[0]} '
             delta = round(obs_df[parameter].values[0] - obs_df[parameter].values[1], 1)
-            tile = col.container(height=125)
-            tile.metric(
-                label=parameters_dict[parameter].get('category'),
+            card = col.container(height=125)
+            card.metric(
+                label=obs_parameters_dict[parameter].get('category'),
                 value=f'{value} {unit}',
                 delta=f'{delta} {unit}' if delta != 0 else None
             )
         else:
-            tile = col.container(height=125, border=False)
+            card = col.container(height=125, border=False)
 
-    st.subheader('Dernières 24 h')
+    col1, col2 = tab2.columns(2)
+
+    col1.markdown('##### Relevés des dernières 24 h')
 
     for column in obs_parameters:
-        if parameters_dict[column].get('plot_type') == 'line':
+        if obs_parameters_dict[column].get('plot_type') == 'line':
             fig = px.line(obs_df, x='validity_time', y=column)
-        elif parameters_dict[column].get('plot_type') == 'bar':
+        elif obs_parameters_dict[column].get('plot_type') == 'bar':
             fig = px.bar(obs_df, x='validity_time', y=column)
             fig.update_yaxes(rangemode='tozero')
-        elif parameters_dict[column].get('plot_type') == 'area':
-            fig = px.area(obs_df, x='validity_time', y=column)
         else:
             break
 
-        description = parameters_dict[column].get('description')
-        label = parameters_dict[column].get('label')
-        unit = parameters_dict[column].get('unit')
+        description = obs_parameters_dict[column].get('description')
+        label = obs_parameters_dict[column].get('label')
+        unit = obs_parameters_dict[column].get('unit')
 
         fig.update_layout(
-            title_text=description,
+            title=dict(text=description, automargin=True, x=0.5, xanchor='center'),
             xaxis_title='',
             yaxis_title=f'{label} ({unit})',
-            margin=dict(b=0),
+            margin=dict(l=20, r=20, t=12, b=2),
             height=300
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        col1.plotly_chart(fig, use_container_width=True)
+
+    col2.markdown('##### Historique')
+
+    # -- Année passée
+
+    # Sélectionner la date de début et la date de fin
+
+    start_date = obs_df['validity_time'].min().astimezone(ZoneInfo('UTC')) - relativedelta(years=1)
+    start_date = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+    end_date = obs_df['validity_time'].max().astimezone(ZoneInfo('UTC')) - relativedelta(years=1)
+    end_date = end_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    clim = ClimatologicalData()
+    clim_data = clim.hourly_data(id_station=selected_id_station, start_date=start_date, end_date=end_date)
+    clim_df = climatological_data_to_df(clim_data)
+
+    clim_parameters = clim_df.select_dtypes(include='number').columns
+    n_clim_parameters = len(clim_parameters)
+
+    for column in clim_parameters:
+        if hourly_clim_parameters_dict[column].get('plot_type') == 'line':
+            fig = px.line(clim_df, x='DATE', y=column)
+        elif hourly_clim_parameters_dict[column].get('plot_type') == 'bar':
+            fig = px.bar(clim_df, x='DATE', y=column)
+            fig.update_yaxes(rangemode='tozero')
+        else:
+            break
+
+        description = hourly_clim_parameters_dict[column].get('description')
+        label = hourly_clim_parameters_dict[column].get('label')
+        unit = hourly_clim_parameters_dict[column].get('unit')
+
+        fig.update_layout(
+            title=dict(text=description, automargin=True, x=0.5, xanchor='center'),
+            xaxis_title='',
+            yaxis_title=f'{label} ({unit})',
+            margin=dict(l=20, r=20, t=12, b=2),
+            height=300
+        )
+
+        col2.plotly_chart(fig, use_container_width=True)
+
+
+    # ! date ouverture
+    # @st.cache_data
+    # def test(selected_id_station):
+    #     years = [1980, 2000, 2020]
+    #
+    #     clim_df = pd.DataFrame()
+    #
+    #     for year in years:
+    #         start_date = f'{year}-01-01T00:00:00Z'
+    #         end_date = f'{year}-12-31T00:00:00Z'
+    #         clim = ClimatologicalData()
+    #         df = clim.daily_data(id_station=selected_id_station, start_date=start_date, end_date=end_date)
+    #         df = climatological_data_to_df(df)
+    #         clim_df = pd.concat([clim_df, df])
+    #         time.sleep(1)
+    #     return clim_df
+    #
+    #
+    # clim_df = test(selected_id_station)
+    #
+    # clim_df['DAY'] = clim_df['DATE'].dt.day
+    # clim_df['MONTH'] = clim_df['DATE'].dt.month
+    # clim_df['YEAR'] = clim_df['DATE'].dt.year
+    #
+    # today = datetime.now()
+    #
+    # temp = clim_df.loc[(clim_df['DAY'] == today.day) & (clim_df['MONTH'] == today.month)]
+    #
+    # st.write(clim_df)
+    # st.write(temp)
+
+    # fig = px.line(temp, x='YEAR', y='TMNX', markers=True)
+    #
+    # fig.update_layout(
+    #     title=dict(text='zrezr', automargin=True, x=0.5, xanchor='center'),
+    #     xaxis_title='',
+    #     # yaxis_title=f'{label} ({unit})',
+    #     margin=dict(l=20, r=20, t=12, b=2),
+    #     height=300
+    # )
+    #
+    # col2.plotly_chart(fig, use_container_width=True)
 
 # @st.cache_data
 # def import_api_daily_parameters() -> pd.DataFrame:
